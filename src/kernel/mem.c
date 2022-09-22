@@ -13,6 +13,7 @@
 // #define LOG_DEBUG_BLOCK
 
 // #define DO_PREV_MERGE
+// #define NEW_PREV_MERGE
 //FIXME: prev merge cannot work..
 
 RefCount alloc_page_cnt;
@@ -31,10 +32,6 @@ define_early_init(page_list_init)
         add_to_queue(&phead, (QueueNode*) p);
     }
 }
-
-// define_early_init(spinlock) {
-//     init_spinlock(&kalloc_lock);
-// }
 
 void* kalloc_page()
 {
@@ -85,7 +82,8 @@ void* kalloc(isize _size)
     // Find a page with enough max_size
     setup_checker(chk1);
     for (pg = first_page[cid]; pg != 0; pg = pg->next_page) {
-        acquire_spinlock(chk1, &(pg->page_lock));
+        // acquire_spinlock(chk1, &(pg->page_lock));
+        if (!try_acquire_spinlock(chk1, &(pg->page_lock))) continue;
         if ((u64) pg->max_size >= size) {
             // Found an available page, now try to find a block
             for (blk = (struct Block_Info*)(pg + 1); 
@@ -199,7 +197,7 @@ void kfree(void* p)
         blk->size += next->size + sizeof(struct Block_Info);
         auto nnext = (struct Block_Info*) ((u64) (next + 1) + (u64) next->size);
         if ((u64) nnext < pb + PAGE_SIZE) {
-            nnext -> prev = blk;
+            nnext->prev = blk;
         }
 
         #ifdef LOG_DEBUG_BLOCK_MERGE
@@ -211,6 +209,7 @@ void kfree(void* p)
     // Check if prev is empty
     next = (struct Block_Info*)((u64) (blk + 1) + (u64) blk->size);
     if (prev != blk && prev->used == 0) {
+        printk("...Blk at %llx, prev at %llx\n", (u64) blk, (u64) blk->prev);
         prev->size += blk->size + sizeof(struct Block_Info);
         if ((u64) next < pb + PAGE_SIZE) {
             next->prev = prev;
@@ -225,7 +224,7 @@ void kfree(void* p)
     // Update max_size of this page
     pg->max_size = MAX(pg->max_size, blk->size);
 
-    // if (pg->max_size == PAGE_SIZE - sizeof(struct Page_Info)) {
+    // if (pg->max_size == PAGE_SIZE - sizeof(struct Page_Info) - sizeof(struct Block_Info)) {
     //     kfree_page((void*) pg);
     // }
     release_spinlock(chk2, &(pg->page_lock));
