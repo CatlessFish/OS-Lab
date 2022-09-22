@@ -80,8 +80,8 @@ void alloc_test() {
             int m = (i ^ sz[i][k]) & 255;
             for (int t = 0; t < sz[i][k]; t++)
                 if (((u8*)p[i][k])[t] != m)
-                    // FAIL("FAIL: block[%d][%d] wrong\n", i, k);
-                    FAIL("FAIL: block[%d][%d] at %llx wrong\n", i, k, (u64) p[i][k]);
+                    FAIL("FAIL: block[%d][%d] wrong\n", i, k);
+                    // FAIL("FAIL: block[%d][%d] at %llx wrong\n", i, k, (u64) p[i][k]);
             kfree(p[i][k]);
             p[i][k] = p[i][--j];
             sz[i][k] = sz[i][j];
