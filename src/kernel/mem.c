@@ -9,8 +9,21 @@
 #include <driver/memlayout.h>
 
 // #define LOG_DEBUG_PAGE
-// #define LOG_DEBUG_PAGE_MERGE
+// #define LOG_DEBUG_BLOCK_MERGE
 // #define LOG_DEBUG_BLOCK
+
+// #define DO_PREV_MERGE
+//FIXME: prev merge cannot work..
+
+#define debug_acquire_spinlock(X, Y) {                          \
+    printk("CPU %d ask for lock %llx\n", cpuid(), (u64) (Y));   \
+    acquire_spinlock(X, Y);                                     \
+}        
+
+#define debug_release_spinlock(X, Y) {                          \
+    printk("CPU %d release lock %llx\n", cpuid(), (u64) (Y));   \
+    release_spinlock(X, Y);                                     \
+} 
 
 RefCount alloc_page_cnt;
 
@@ -29,8 +42,6 @@ define_early_init(page_list_init)
     }
 }
 
-static SpinLock kalloc_lock;
-
 // define_early_init(spinlock) {
 //     init_spinlock(&kalloc_lock);
 // }
@@ -41,7 +52,7 @@ void* kalloc_page()
     QueueNode *p = fetch_from_queue(&phead);
 
     #ifdef LOG_DEBUG_PAGE
-    printk("Allocated new page at %llx\n", (u64) p);
+    printk("(CPU %d) Allocated new page at %llx\n", cpuid(), (u64) p);
     #endif
     
     return (void*) p;
@@ -59,31 +70,34 @@ void kfree_page(void* p)
 
 struct Page_Info
 {
-    struct Page_Info *next_page; // lock required
+    struct Page_Info *next_page;
     u32 max_size;
+    SpinLock page_lock;
 };
 
 struct Block_Info
 {
-    struct Block_Info *prev; // lock required
+    struct Block_Info *prev;
     u32 size;
     u8 used;
 };
 
-static struct Page_Info *first_page = 0;
+static struct Page_Info *first_page[4] = {0};
 
 void* kalloc(isize _size)
 {
-    setup_checker(kallocChecker);
-    acquire_spinlock(kallocChecker, &kalloc_lock);
     // Always align to 8 bytes
     u64 size = (_size % 8) ? (_size / 8 + 1) * 8 : _size;
 
     struct Block_Info *blk;
     struct Page_Info* pg;
+    int cid = cpuid();
 
     // Find a page with enough max_size
-    for (pg = first_page; pg != 0; pg = pg->next_page) {
+    setup_checker(pagelockChecker);
+    for (pg = first_page[cid]; pg != 0; pg = pg->next_page) {
+        // if (!try_acquire_spinlock(pagelockChecker, &(pg->page_lock))) continue;
+        // debug_acquire_spinlock(pagelockChecker, &(pg->page_lock));
         if ((u64) pg->max_size >= size) {
             // Found an available page, now try to find a block
             for (blk = (struct Block_Info*)(pg + 1); 
@@ -111,34 +125,47 @@ void* kalloc(isize _size)
             }
 
             #ifdef LOG_DEBUG_BLOCK
-            printk("Allocated block %llx with size %lld, page max_size is now %lld\n", (u64) (blk + 1), (u64) blk->size, (u64) pg->max_size);
+            printk("AB %llx with size %lld, page max_size now %lld\n", (u64) (blk), (u64) blk->size, (u64) pg->max_size);
             #endif
 
-            release_spinlock(kallocChecker, &kalloc_lock);
+            // debug_release_spinlock(pagelockChecker, &(pg->page_lock));
             return (void*)(blk + 1);
         }
         // Reach the last page, and still failed to find enough space
         if (pg->next_page == 0) {
             #ifdef LOG_DEBUG_PAGE
-            printk("Reach last page %llx with max size %lld\n", (u64) pg, (u64) pg->max_size);
+            printk("(CPU %d) Reach last page %llx with max size %lld\n", cid, (u64) pg, (u64) pg->max_size);
             #endif
-
+            // debug_release_spinlock(pagelockChecker, &(pg->page_lock));
             break;
         }
+        // debug_release_spinlock(pagelockChecker, &(pg->page_lock));
     }
-
     // Need a new page
+    if (pg) {
+        init_spinlock(&(pg->page_lock));
+        // _acquire_spinlock(&(pg->page_lock));
+    }
     struct Page_Info *old_page = pg;
     pg = kalloc_page();
-    old_page->next_page = pg;
+    // debug_acquire_spinlock(pagelockChecker, &(pg->page_lock));
     pg->max_size = PAGE_SIZE - sizeof(struct Page_Info) - sizeof(struct Block_Info);
     pg->next_page = 0;
+    if (first_page[cid] == 0) {
+        first_page[cid] = pg;
+    }
+    else {
+        old_page->next_page = pg;
+    }
+    if (old_page) {
+        // _release_spinlock(&(old_page->page_lock));
+    }
+
 
     blk = (struct Block_Info*) (pg + 1);
     blk->prev = blk;
     blk->size = pg->max_size;
     blk->used = 0;
-    if (first_page == 0) first_page = pg;
     
     // Divide blk into (size) and another empty block
     if ((u64) blk->size - size <= sizeof(struct Block_Info)) {
@@ -155,49 +182,55 @@ void* kalloc(isize _size)
     // Update max_size of this page
     pg->max_size = 0;
     for (auto b = (struct Block_Info*) (pg + 1); (u64) b < (u64)(pg) + PAGE_SIZE; b = (struct Block_Info*) ((u64) (b + 1) + (u64) b->size)) {
-        if (b->used == 0) 
-        {
+        if (b->used == 0) {
             pg->max_size = MAX(b->size, pg->max_size);
         }
     }
 
     #ifdef LOG_DEBUG_BLOCK
-    printk("Block %llx of size %lld in new page %llx, page max_size is now %lld\n", (u64) (blk + 1), (u64) blk->size, (u64) pg, (u64) pg->max_size);
+    printk("AB %llx of size %lld in new page %llx, page max_size now %lld\n", (u64) (blk), (u64) blk->size, (u64) pg, (u64) pg->max_size);
     #endif
 
-    release_spinlock(kallocChecker, &kalloc_lock);
+    // debug_release_spinlock(pagelockChecker, &(pg->page_lock));
     return (void*)(blk + 1);
 }
 
+
+
 void kfree(void* p)
 {
-    (void)p;
-}
-
-void kfree_1(void* p)
-{
     setup_checker(kfreeChecker);
-    acquire_spinlock(kfreeChecker, &kalloc_lock);
     u64 pb = PAGE_BASE((u64) p);
     auto pg = (struct Page_Info*) pb;
+    // acquire_spinlock(kfreeChecker, &(pg->page_lock));
     struct Block_Info* blk = (struct Block_Info*)((u64) p - sizeof(struct Block_Info));
-    blk->used = 0;
     struct Block_Info *prev = blk->prev;
     struct Block_Info *next = (struct Block_Info*)((u64) (blk + 1) + (u64) blk->size);
+    blk->used = 0;
+    // prevent unused variable warning..
+    (void)next;
+    (void)prev;
+
+    #ifdef LOG_DEBUG_BLOCK_MERGE
+    printk("Freeing block %llx size %lld...\n", (u64) blk, (u64) blk->size);
+    if ((u64) next < pb + PAGE_SIZE) printk("...Next block %llx size %lld, used = %d\n", (u64) next, (u64) next->size, next->used);
+    printk("...Previous block %llx size %lld, used = %d\n", (u64) prev, (u64) prev->size, prev->used);
+    #endif
 
     // Check if next is empty
     if ((u64) next < pb + PAGE_SIZE && next->used == 0) {
         blk->size += next->size + sizeof(struct Block_Info);
-        auto nnext = (struct Block_Info*) ((u64) (next + 1) + next->size);
+        auto nnext = (struct Block_Info*) ((u64) (next + 1) + (u64) next->size);
         if ((u64) nnext < pb + PAGE_SIZE) {
             nnext -> prev = blk;
         }
 
         #ifdef LOG_DEBUG_BLOCK_MERGE
-        printk("Next block %llx with size %lld, merged into block %llx with new size %lld\n", (u64) next, (u64) next->size, (u64) blk, (u64) blk->size);
+        printk("...MN Next block %llx size %lld, merged into block %llx new size %lld\n", (u64) next, (u64) next->size, (u64) blk, (u64) blk->size);
         #endif
     }
 
+    #ifdef DO_PREV_MERGE
     // Check if prev is empty
     next = (struct Block_Info*)((u64) (blk + 1) + (u64) blk->size);
     if (prev != blk && prev->used == 0) {
@@ -207,9 +240,10 @@ void kfree_1(void* p)
         }
 
         #ifdef LOG_DEBUG_BLOCK_MERGE
-        printk("Block size is %lld, prev block is %llx with size %lld\n", (u64) blk->size, (u64) prev, (u64) prev->size);
+        printk("...MP Block size is %lld, prev block is %llx new size %lld\n", (u64) blk->size, (u64) prev, (u64) prev->size);
         #endif
     }
+    #endif
 
     // Update max_size of this page
     pg->max_size = 0;
@@ -218,22 +252,12 @@ void kfree_1(void* p)
             pg->max_size = MAX(pg->max_size, b->size);
         }
     }
-    // For debugging...
-    // if (pg->max_size > PAGE_SIZE) {
-    //     printk("Page %llx Size ERROR with size %lld\n", pb, (u64) pg->max_size);
-    //     for (auto b = (struct Block_Info*) (pg + 1); (u64) b < pb + PAGE_SIZE; b = (struct Block_Info*) ((u64) (b + 1) + (u64) b->size)) {
-    //         {
-    //             printk("Block %llx with size %lld, used=%d\n", (u64) b, (u64) b->size, b->used);
-    //         }
-    // }
-    // }
-
     if (pg->max_size == PAGE_SIZE - sizeof(struct Page_Info)) {
-        kfree_page((void*) pg);
+        // kfree_page((void*) pg);
     }
-    release_spinlock(kfreeChecker, &kalloc_lock);
+    // release_spinlock(kfreeChecker, &(pg->page_lock));
 
     #ifdef LOG_DEBUG_BLOCK
-    printk("Freed block %llx\n", (u64) blk);
+    printk("...Freed block %llx\n", (u64) blk);
     #endif
 }
