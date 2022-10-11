@@ -4,9 +4,40 @@
 #include <kernel/sched.h>
 #include <common/list.h>
 #include <common/string.h>
+#include <common/spinlock.h>
 #include <kernel/printk.h>
 
 struct proc root_proc;
+
+// #define DEBUG_LOG_PROCLOCKINFO
+
+SpinLock proc_tree_lock;
+define_early_init(init_proc_lock) {
+    init_spinlock(&proc_tree_lock);
+}
+
+void _acquire_proc_lock() {
+    _acquire_spinlock(&proc_tree_lock);
+
+    #ifdef DEBUG_LOG_PROCLOCKINFO
+    printk("++CPU %d Acquired proc lock\n", cpuid());
+    #endif
+}
+
+void _release_proc_lock() {
+    _release_spinlock(&proc_tree_lock);
+
+    #ifdef DEBUG_LOG_PROCLOCKINFO
+    printk("--CPU %d Released proc lock\n", cpuid());
+    #endif
+}
+
+int pid;
+SpinLock pid_lock;
+define_early_init(init_pid_lock) {
+    pid = 1;
+    init_spinlock(&pid_lock);
+}
 
 void kernel_entry();
 void proc_entry();
@@ -17,6 +48,10 @@ void set_parent_to_this(struct proc* proc)
     // NOTE: maybe you need to lock the process tree
     // NOTE: it's ensured that the old proc->parent = NULL
 
+    _acquire_proc_lock();
+    proc->parent = thisproc();
+    _insert_into_list(&thisproc()->children, &proc->ptnode);
+    _release_proc_lock();
 }
 
 NO_RETURN void exit(int code)
@@ -27,9 +62,32 @@ NO_RETURN void exit(int code)
     // 3. transfer children to the root_proc, and notify the root_proc if there is zombie
     // 4. sched(ZOMBIE)
     // NOTE: be careful of concurrency
+
+    thisproc()->exitcode = code;
+    // Any resources to be cleaned?
+    _acquire_proc_lock();
+    for (auto p = thisproc()->children.next; p != &thisproc()->children; ) {
+        if (p == &thisproc()->children) continue;
+        struct proc *child = container_of(p, struct proc, ptnode);
+        child->parent = &root_proc;
+        p = _detach_from_list(&child->ptnode); // child->ptnode == p;
+        p = p->next;
+        _insert_into_list(&root_proc.children, &child->ptnode);
+        if (child->state == ZOMBIE) {
+            post_sem(&(root_proc.childexit));
+        }
+    }
+    _release_proc_lock();
+    // Parent should be RUNNING, RUNNABLE or SLEEPING
+    ASSERT(thisproc()->parent->state >= 1 && thisproc()->parent->state <= 3);
+    post_sem(&thisproc()->parent->childexit);
+    _acquire_sched_lock();
+    _sched(ZOMBIE);
     
     PANIC(); // prevent the warning of 'no_return function returns'
 }
+
+extern SpinLock sched_lock;
 
 int wait(int* exitcode)
 {
@@ -38,7 +96,27 @@ int wait(int* exitcode)
     // 2. wait for childexit
     // 3. if any child exits, clean it up and return its pid and exitcode
     // NOTE: be careful of concurrency
+
+    if (_empty_list(&thisproc()->children)) return -1;
+    bool v = wait_sem(&thisproc()->childexit);
+    ASSERT(v);
     
+    _acquire_proc_lock();
+    _for_in_list(p, &thisproc()->children) {
+        if (p == &thisproc()->children) continue;
+        struct proc *child = container_of(p, struct proc, ptnode);
+        // ASSERT(child->state <= 4 && child->state >= 0);
+        if (child->state == ZOMBIE) {
+            *exitcode = child->exitcode;
+            int pid = child->pid;
+            kfree_page(child->kstack);
+            p = _detach_from_list(&child->ptnode);
+            kfree(child);
+            _release_proc_lock();
+            return pid;
+        }
+    }
+    ASSERT(false);
 }
 
 int start_proc(struct proc* p, void(*entry)(u64), u64 arg)
@@ -49,6 +127,19 @@ int start_proc(struct proc* p, void(*entry)(u64), u64 arg)
     // 3. activate the proc and return its pid
     // NOTE: be careful of concurrency
 
+    if (p->parent == NULL) {
+        _acquire_proc_lock();
+        p->parent = &root_proc;
+        _insert_into_list(&(root_proc.children), &p->ptnode);
+        _release_proc_lock();
+    }
+    p->kcontext->lr = (u64) &proc_entry;
+    p->kcontext->x0 = (u64) entry;
+    p->kcontext->x1 = (u64) arg;
+    int id = p->pid;
+    ASSERT(p->parent != NULL);
+    activate_proc(p); // after this, p should not be used
+    return id;
 }
 
 void init_proc(struct proc* p)
@@ -57,6 +148,22 @@ void init_proc(struct proc* p)
     // setup the struct proc with kstack and pid allocated
     // NOTE: be careful of concurrency
 
+    memset(p, 0, sizeof(*p));
+    p->killed = 0;
+    p->idle = 0;
+    _acquire_spinlock(&pid_lock);
+    p->pid = pid++;
+    _release_spinlock(&pid_lock);
+    p->exitcode = 0;
+    p->state = UNUSED;
+    init_sem(&p->childexit, 0);
+    init_list_node(&p->children);
+    init_list_node(&p->ptnode);
+    init_schinfo(&p->schinfo);
+    p->kstack = kalloc_page();
+    ASSERT(p->kstack);
+    p->ucontext = (UserContext*) ((u64) p->kstack + PAGE_SIZE - 16 - sizeof(UserContext));
+    p->kcontext = (KernelContext*) ((u64) p->ucontext - sizeof(KernelContext));
 }
 
 struct proc* create_proc()

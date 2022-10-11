@@ -3,7 +3,7 @@
 #include <kernel/init.h>
 #include <kernel/sched.h>
 #include <test/test.h>
-#include <driver/sd.h>
+// #include <driver/sd.h>
 
 bool panic_flag;
 
@@ -20,6 +20,8 @@ NO_RETURN void idle_entry() {
     set_cpu_off();
     arch_stop_cpu();
 }
+
+extern void proc_test();
 
 NO_RETURN void kernel_entry() {
     printk("Hello world\n");

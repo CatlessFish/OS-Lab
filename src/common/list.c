@@ -84,6 +84,7 @@ void queue_push(Queue* x, ListNode* item) {
     } else {
         _merge_list(x->end, item);
         x->end = item;
+        x->sz++;
     }
 }
 void queue_pop(Queue* x) {

@@ -13,8 +13,7 @@
 // #define LOG_DEBUG_BLOCK
 
 // #define DO_PREV_MERGE
-// #define NEW_PREV_MERGE
-//FIXME: prev merge cannot work..
+//FIXME: emm..prev merge cannot work..
 
 RefCount alloc_page_cnt;
 
@@ -24,12 +23,14 @@ define_early_init(alloc_page_cnt)
 }
 
 static QueueNode* phead;
+int page_count;
 extern char end[];
 
 define_early_init(page_list_init)
 {
     for(u64 p = PAGE_BASE((u64) end) + PAGE_SIZE; p < P2K(PHYSTOP); p += PAGE_SIZE) {
         add_to_queue(&phead, (QueueNode*) p);
+        page_count++;
     }
 }
 
@@ -37,6 +38,7 @@ void* kalloc_page()
 {
     _increment_rc(&alloc_page_cnt);
     QueueNode *p = fetch_from_queue(&phead);
+    ASSERT(p);
 
     #ifdef LOG_DEBUG_PAGE
     printk("(CPU %d) Allocated new page at %llx\n", cpuid(), (u64) p);
@@ -82,7 +84,6 @@ void* kalloc(isize _size)
     // Find a page with enough max_size
     setup_checker(chk1);
     for (pg = first_page[cid]; pg != 0; pg = pg->next_page) {
-        // acquire_spinlock(chk1, &(pg->page_lock));
         if (!try_acquire_spinlock(chk1, &(pg->page_lock))) continue;
         if ((u64) pg->max_size >= size) {
             // Found an available page, now try to find a block
