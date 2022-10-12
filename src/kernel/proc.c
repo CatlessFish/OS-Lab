@@ -115,7 +115,8 @@ NO_RETURN void exit(int code)
     // 1. set the exitcode
     // 2. clean up the resources
     // 3. transfer children to the root_proc, and notify the root_proc if there is zombie
-    // 4. sched(ZOMBIE)
+    // 4. notify the parent
+    // 5. sched(ZOMBIE)
     // NOTE: be careful of concurrency
 
     thisproc()->exitcode = code;
@@ -183,6 +184,14 @@ int wait(int* exitcode)
         printk("Waiting.. CPU %d pid %d\n", cpuid(), thisproc()->pid);
     // }
     PANIC();
+}
+
+int kill(int pid)
+{
+    // TODO
+    // Set the killed flag of the proc to true and return 0.
+    // Return -1 if the pid is invalid (proc not found).
+    
 }
 
 int start_proc(struct proc* p, void(*entry)(u64), u64 arg)
