@@ -138,4 +138,5 @@ void proc_test()
     }
     ASSERT(t == 1048575);
     printk("proc_test PASS\n");
+    // PANIC();
 }

@@ -137,10 +137,21 @@ static void update_this_proc(struct proc* p)
 {
     // TODO: if using simple_sched, you should implement this routinue
     // update thisproc to the choosen process, and reset the clock interrupt if need
-    reset_clock(500);
+    reset_clock(1000);
     cpus[cpuid()].sched.thisproc = p;
-    // update schinfo
 }
+
+void
+print_run_queue_info() {
+    _for_in_list(node, &run_queue) {
+        if (node == &run_queue) continue;
+        auto p = container_of(node, struct proc, schinfo.sch_node);
+        printk("pid: %d, state: %d\n", p->pid, p->state);
+    }
+    printk("End of rq\n");
+}
+
+extern struct proc root_proc;
 
 // A simple scheduler.
 // You are allowed to replace it with whatever you like.
@@ -160,6 +171,13 @@ static void simple_sched(enum procstate new_state)
         #endif
 
         swtch(next->kcontext, &this->kcontext);
+    } else {
+        #ifdef DEBUG_LOG_SCHEDINFO
+        printk("Picked this, schedule canceled, cpu %d, pid %d\n", cpuid(), this->pid);
+        print_run_queue_info();
+        printk("root state: %d\n", root_proc.state);
+        delay_us(100000);
+        #endif
     }
     if (!thisproc()->idle) ASSERT(thisproc()->parent->state >= 1 && thisproc()->parent->state <= 4);
     _release_sched_lock();

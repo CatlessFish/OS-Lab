@@ -10,6 +10,7 @@
 struct proc root_proc;
 
 // #define DEBUG_LOG_PROCLOCKINFO
+// #define DEBUG_LOG_EXITINFO
 
 SpinLock proc_tree_lock;
 define_early_init(init_proc_lock) {
@@ -32,11 +33,65 @@ void _release_proc_lock() {
     #endif
 }
 
+
+typedef struct {
+    bool used;
+    int pid;
+    ListNode node;
+} pid_s;
+
 int pid;
+ListNode pid_head;
 SpinLock pid_lock;
-define_early_init(init_pid_lock) {
+
+define_early_init(init_pid) {
     pid = 1;
     init_spinlock(&pid_lock);
+    init_list_node(&pid_head);
+}
+
+void pid_grow() {
+    for (int i = 0; i < 10; i++)
+    {
+        auto p = (pid_s*) kalloc(sizeof(pid_s));
+        p->pid = pid++;
+        init_list_node(&p->node);
+        _insert_into_list(&pid_head, &p->node);
+    }
+}
+
+int get_pid() {
+    _acquire_spinlock(&pid_lock);
+    pid_s* p = NULL;
+    while (1) {
+        _for_in_list(node, &pid_head) {
+            if (node == &pid_head) continue;
+            auto cur = container_of(node, pid_s, node);
+            if (!cur->used) {
+                p = cur;
+                break;
+            }
+        }
+        if (p == NULL) pid_grow();
+        else break;
+    }
+    _release_spinlock(&pid_lock);
+    ASSERT(p != NULL && p->used == 0);
+    p->used = 1;
+    return p->pid;
+}
+
+void return_pid(int id) {
+    _acquire_spinlock(&pid_lock);
+    _for_in_list(node, &pid_head) {
+        if (node == &pid_head) continue;
+        auto p = container_of(node, pid_s, node);
+        if (p->pid == id) {
+            p->used = 0;
+            break;
+        }
+    }
+    _release_spinlock(&pid_lock);
 }
 
 void kernel_entry();
@@ -73,7 +128,7 @@ NO_RETURN void exit(int code)
         p = _detach_from_list(&child->ptnode); // child->ptnode == p;
         p = p->next;
         _insert_into_list(&root_proc.children, &child->ptnode);
-        if (child->state == ZOMBIE) {
+        if (is_zombie(child)) {
             post_sem(&(root_proc.childexit));
         }
     }
@@ -82,6 +137,11 @@ NO_RETURN void exit(int code)
     ASSERT(thisproc()->parent->state >= 1 && thisproc()->parent->state <= 3);
     post_sem(&thisproc()->parent->childexit);
     _acquire_sched_lock();
+
+    #ifdef DEBUG_LOG_EXITINFO
+    printk("Exited: CPU %d pid %d\n", cpuid(), thisproc()->pid);
+    #endif
+
     _sched(ZOMBIE);
     
     PANIC(); // prevent the warning of 'no_return function returns'
@@ -100,23 +160,28 @@ int wait(int* exitcode)
     if (_empty_list(&thisproc()->children)) return -1;
     bool v = wait_sem(&thisproc()->childexit);
     ASSERT(v);
-    
-    _acquire_proc_lock();
-    _for_in_list(p, &thisproc()->children) {
-        if (p == &thisproc()->children) continue;
-        struct proc *child = container_of(p, struct proc, ptnode);
-        // ASSERT(child->state <= 4 && child->state >= 0);
-        if (child->state == ZOMBIE) {
-            *exitcode = child->exitcode;
-            int pid = child->pid;
-            kfree_page(child->kstack);
-            p = _detach_from_list(&child->ptnode);
-            kfree(child);
-            _release_proc_lock();
-            return pid;
+
+    while (1) {
+        _acquire_proc_lock();
+        _for_in_list(p, &thisproc()->children) {
+            if (p == &thisproc()->children) continue;
+            struct proc *child = container_of(p, struct proc, ptnode);
+            // ASSERT(child->state <= 4 && child->state >= 0);
+            if (is_zombie(child)) {
+                *exitcode = child->exitcode;
+                int pid = child->pid;
+                kfree_page(child->kstack);
+                p = _detach_from_list(&child->ptnode);
+                kfree(child);
+                _release_proc_lock();
+                return_pid(pid);
+                return pid;
+            }
         }
+        _release_proc_lock();
+        printk("Waiting.. CPU %d pid %d\n", cpuid(), thisproc()->pid);
     }
-    ASSERT(false);
+    PANIC();
 }
 
 int start_proc(struct proc* p, void(*entry)(u64), u64 arg)
@@ -151,9 +216,7 @@ void init_proc(struct proc* p)
     memset(p, 0, sizeof(*p));
     p->killed = 0;
     p->idle = 0;
-    _acquire_spinlock(&pid_lock);
-    p->pid = pid++;
-    _release_spinlock(&pid_lock);
+    p->pid = get_pid();
     p->exitcode = 0;
     p->state = UNUSED;
     init_sem(&p->childexit, 0);
