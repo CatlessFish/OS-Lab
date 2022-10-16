@@ -8,9 +8,14 @@
 
 struct cpu cpus[NCPU];
 
+extern SpinLock sched_lock;
+
 static void cpu_clock_handler() {
     // TODO:?
-    reset_clock(10);
+    reset_clock(1000);
+    if (_try_acquire_spinlock(&sched_lock)) {
+        _sched(RUNNABLE);
+    }
 }
 
 define_early_init(clock_handler) {

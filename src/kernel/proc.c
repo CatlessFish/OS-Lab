@@ -179,6 +179,7 @@ int wait(int* exitcode)
             }
         }
         _release_proc_lock();
+        // yield();
         printk("Waiting.. CPU %d pid %d\n", cpuid(), thisproc()->pid);
     // }
     PANIC();
@@ -236,9 +237,16 @@ struct proc* create_proc()
     return p;
 }
 
+void test_proc()
+{
+    printk("test\n");
+    exit(0);
+}
+
 define_init(root_proc)
 {
     init_proc(&root_proc);
     root_proc.parent = &root_proc;
+    // start_proc(&root_proc, test_proc, 123);
     start_proc(&root_proc, kernel_entry, 123456);
 }
