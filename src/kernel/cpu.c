@@ -10,7 +10,7 @@ struct cpu cpus[NCPU];
 
 static void cpu_clock_handler() {
     // TODO:?
-    reset_clock(1000);
+    reset_clock(10);
 }
 
 define_early_init(clock_handler) {

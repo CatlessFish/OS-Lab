@@ -102,13 +102,12 @@ static void update_this_state(enum procstate new_state)
 {
     // TODO: if using simple_sched, you should implement this routinue
     // update the state of current process to new_state, and remove it from the sched queue if new_state=SLEEPING/ZOMBIE
-    // _acquire_sched_lock();
     auto p = thisproc();
     p->state = new_state;
     if (new_state == SLEEPING || new_state == ZOMBIE) {
+        if (last_pick == &p->schinfo.sch_node) last_pick = last_pick->next;
         _detach_from_list(&p->schinfo.sch_node);
     }
-    // _release_sched_lock();
 }
 
 extern bool panic_flag;
@@ -137,7 +136,7 @@ static void update_this_proc(struct proc* p)
 {
     // TODO: if using simple_sched, you should implement this routinue
     // update thisproc to the choosen process, and reset the clock interrupt if need
-    reset_clock(1000);
+    reset_clock(10);
     cpus[cpuid()].sched.thisproc = p;
 }
 

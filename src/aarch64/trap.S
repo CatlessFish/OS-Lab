@@ -4,6 +4,8 @@
 /* `exception_vector.S` send all traps here. */
 .global trap_entry
 trap_entry:
+pushp(x29, x30) // save current fp and lr
+mov x29, sp
 pushp(x16, x17)
 pushp(x14, x15)
 pushp(x12, x13)
@@ -33,6 +35,7 @@ popp(x10, x11)
 popp(x12, x13)
 popp(x14, x15)
 popp(x16, x17)
+popp(x29, x30)
 eret
 
 

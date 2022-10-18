@@ -5,6 +5,7 @@
 #include <common/list.h>
 #include <common/spinlock.h>
 #include <common/checker.h>
+#include <common/string.h>
 #include <aarch64/mmu.h>
 #include <driver/memlayout.h>
 
@@ -44,6 +45,7 @@ void* kalloc_page()
     printk("(CPU %d) Allocated new page at %llx\n", cpuid(), (u64) p);
     #endif
     
+    memset((void*) p, 0, PAGE_SIZE);
     return (void*) p;
 }
 
@@ -71,20 +73,31 @@ struct Block_Info
     u8 used;
 };
 
-static struct Page_Info *first_page[4] = {0};
+static struct Page_Info *first_page[4];
+static SpinLock fp_lock[4];
+
+define_early_init(first_page_init) {
+    for(int i = 0; i < 4; i++) {
+        first_page[i] = 0;
+        init_spinlock(&fp_lock[i]);
+    }
+}
 
 void* kalloc(isize _size)
 {
+    ASSERT(_size > 0);
+    ASSERT((u64) _size <= PAGE_SIZE - sizeof(struct Page_Info) - sizeof(struct Block_Info));
     // Always align to 8 bytes
     u64 size = (_size % 8) ? (_size / 8 + 1) * 8 : _size;
     struct Block_Info *blk;
     struct Page_Info* pg;
     int cid = cpuid();
+    // _acquire_spinlock(&fp_lock[cid]);
 
     // Find a page with enough max_size
     setup_checker(chk1);
     for (pg = first_page[cid]; pg != 0; pg = pg->next_page) {
-        if (!try_acquire_spinlock(chk1, &(pg->page_lock))) continue;
+        acquire_spinlock(chk1, &(pg->page_lock));
         if ((u64) pg->max_size >= size) {
             // Found an available page, now try to find a block
             for (blk = (struct Block_Info*)(pg + 1); 
@@ -117,6 +130,7 @@ void* kalloc(isize _size)
             printk("AB %llx with size %lld, page max_size now %lld\n", (u64) (blk), (u64) blk->size, (u64) pg->max_size);
             #endif
 
+            // _release_spinlock(&fp_lock[cid]);
             release_spinlock(chk1, &(pg->page_lock));
             return (void*)(blk + 1);
         }
@@ -135,16 +149,11 @@ void* kalloc(isize _size)
 
     // Need a new page
     struct Page_Info *old_page = pg;
-    pg = kalloc_page();
+    pg = (struct Page_Info*) kalloc_page();
+    ASSERT(pg);
     pg->max_size = PAGE_SIZE - sizeof(struct Page_Info) - sizeof(struct Block_Info);
-    pg->next_page = 0;
+    pg->next_page = NULL;
     init_spinlock(&(pg->page_lock));
-    if (first_page[cid] == 0) {
-        first_page[cid] = pg;
-    }
-    else {
-        old_page->next_page = pg;
-    }
 
     blk = (struct Block_Info*) (pg + 1);
     blk->prev = blk;
@@ -165,9 +174,18 @@ void* kalloc(isize _size)
         pg->max_size = nblk->size;
     }
 
+    if (first_page[cid] == 0) {
+        first_page[cid] = pg;
+    }
+    else {
+        ASSERT(old_page);
+        old_page->next_page = pg;
+    }
+
     #ifdef LOG_DEBUG_BLOCK
     printk("AB %llx of size %lld in new page %llx, page max_size now %lld\n", (u64) (blk), (u64) blk->size, (u64) pg, (u64) pg->max_size);
     #endif
+    // _release_spinlock(&fp_lock[cid]);
     return (void*)(blk + 1);
 }
 

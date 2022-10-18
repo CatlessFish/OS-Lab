@@ -76,12 +76,12 @@ int get_pid() {
         else break;
     }
     _release_spinlock(&pid_lock);
-    ASSERT(p != NULL && p->used == 0);
+    ASSERT(p != NULL && p->used == 0); // TODO: a bug may occur
     p->used = 1;
     return p->pid;
 }
 
-void return_pid(int id) {
+void release_pid(int id) {
     _acquire_spinlock(&pid_lock);
     _for_in_list(node, &pid_head) {
         if (node == &pid_head) continue;
@@ -132,7 +132,6 @@ NO_RETURN void exit(int code)
             post_sem(&(root_proc.childexit));
         }
     }
-    _release_proc_lock();
     // Parent should be RUNNING, RUNNABLE or SLEEPING
     ASSERT(thisproc()->parent->state >= 1 && thisproc()->parent->state <= 3);
     post_sem(&thisproc()->parent->childexit);
@@ -142,6 +141,7 @@ NO_RETURN void exit(int code)
     printk("Exited: CPU %d pid %d\n", cpuid(), thisproc()->pid);
     #endif
 
+    _release_proc_lock();
     _sched(ZOMBIE);
     
     PANIC(); // prevent the warning of 'no_return function returns'
@@ -161,7 +161,7 @@ int wait(int* exitcode)
     bool v = wait_sem(&thisproc()->childexit);
     ASSERT(v);
 
-    while (1) {
+    // while (1) {
         _acquire_proc_lock();
         _for_in_list(p, &thisproc()->children) {
             if (p == &thisproc()->children) continue;
@@ -174,13 +174,13 @@ int wait(int* exitcode)
                 p = _detach_from_list(&child->ptnode);
                 kfree(child);
                 _release_proc_lock();
-                return_pid(pid);
+                release_pid(pid);
                 return pid;
             }
         }
         _release_proc_lock();
         printk("Waiting.. CPU %d pid %d\n", cpuid(), thisproc()->pid);
-    }
+    // }
     PANIC();
 }
 
