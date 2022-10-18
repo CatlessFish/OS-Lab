@@ -5,6 +5,7 @@
 #include <common/list.h>
 #include <common/spinlock.h>
 #include <common/checker.h>
+#include <common/string.h>
 #include <aarch64/mmu.h>
 #include <driver/memlayout.h>
 
@@ -44,6 +45,7 @@ void* kalloc_page()
     printk("(CPU %d) Allocated new page at %llx\n", cpuid(), (u64) p);
     #endif
     
+    memset((void*) p, 0, PAGE_SIZE);
     return (void*) p;
 }
 

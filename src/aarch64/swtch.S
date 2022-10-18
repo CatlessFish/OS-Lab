@@ -7,7 +7,6 @@
 
 .globl swtch
 swtch:
-// TODO
 pushp(x28, x29)
 pushp(x26, x27)
 pushp(x24, x25)
