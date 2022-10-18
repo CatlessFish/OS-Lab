@@ -99,7 +99,7 @@ void proc_entry();
 
 void set_parent_to_this(struct proc* proc)
 {
-    // TODO: set the parent of proc to thisproc
+    // set the parent of proc to thisproc
     // NOTE: maybe you need to lock the process tree
     // NOTE: it's ensured that the old proc->parent = NULL
 
@@ -111,7 +111,6 @@ void set_parent_to_this(struct proc* proc)
 
 NO_RETURN void exit(int code)
 {
-    // TODO
     // 1. set the exitcode
     // 2. clean up the resources
     // 3. transfer children to the root_proc, and notify the root_proc if there is zombie
@@ -152,7 +151,6 @@ extern SpinLock sched_lock;
 
 int wait(int* exitcode)
 {
-    // TODO
     // 1. return -1 if no children
     // 2. wait for childexit
     // 3. if any child exits, clean it up and return its pid and exitcode
@@ -188,7 +186,6 @@ int wait(int* exitcode)
 
 int kill(int pid)
 {
-    // TODO
     // Set the killed flag of the proc to true and return 0.
     // Return -1 if the pid is invalid (proc not found).
     
@@ -196,7 +193,6 @@ int kill(int pid)
 
 int start_proc(struct proc* p, void(*entry)(u64), u64 arg)
 {
-    // TODO
     // 1. set the parent to root_proc if NULL
     // 2. setup the kcontext to make the proc start with proc_entry(entry, arg)
     // 3. activate the proc and return its pid
@@ -219,7 +215,6 @@ int start_proc(struct proc* p, void(*entry)(u64), u64 arg)
 
 void init_proc(struct proc* p)
 {
-    // TODO
     // setup the struct proc with kstack and pid allocated
     // NOTE: be careful of concurrency
 

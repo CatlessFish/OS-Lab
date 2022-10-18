@@ -6,7 +6,7 @@ struct proc; // dont include proc.h here
 // embedded data for cpus
 struct sched
 {
-    // TODO: customize your sched info
+    // customize your sched info
     struct proc* thisproc;
     struct proc* idle;
 };
@@ -14,6 +14,6 @@ struct sched
 // embeded data for procs
 struct schinfo
 {
-    // TODO: customize your sched info
+    // customize your sched info
     ListNode sch_node;
 };
