@@ -184,11 +184,51 @@ int wait(int* exitcode)
     PANIC();
 }
 
+bool found, fail;
+int target_id;
+
+static struct proc* dfs_proctree(ListNode* p) {
+    struct proc* cur = container_of(p, struct proc, ptnode);
+    if (cur->pid == target_id) {
+        if (is_unused(cur)) {
+            fail = true;
+            return NULL;
+        } else {
+            found = true;
+            return cur;
+        }
+    }
+    _for_in_list(node, &cur->children) {
+        if (node == &cur->children) continue;
+        auto res = dfs_proctree(node);
+        if (found) return res;
+        if (fail) return NULL;
+    }
+    return NULL;
+}
+
 int kill(int pid)
 {
     // Set the killed flag of the proc to true and return 0.
     // Return -1 if the pid is invalid (proc not found).
-    
+
+    bool kill = false; // Avoid access to global found after releasing proc_lock
+    _acquire_proc_lock();
+    found = false;
+    fail = false;
+    target_id = pid;
+    struct proc* p = dfs_proctree(&root_proc.ptnode);
+    if (found) {
+        ASSERT(p);
+        p->killed = 1;
+        kill = true;
+    }
+    _release_proc_lock();
+    if (kill) {
+        activate_proc(p);
+        return 0;
+    }
+    else return -1;
 }
 
 int start_proc(struct proc* p, void(*entry)(u64), u64 arg)
@@ -224,6 +264,7 @@ void init_proc(struct proc* p)
     p->pid = get_pid();
     p->exitcode = 0;
     p->state = UNUSED;
+    init_pgdir(&p->pgdir);
     init_sem(&p->childexit, 0);
     init_list_node(&p->children);
     init_list_node(&p->ptnode);

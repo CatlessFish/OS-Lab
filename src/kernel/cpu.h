@@ -29,3 +29,5 @@ void set_cpu_off();
 
 void set_cpu_timer(struct timer* timer);
 void cancel_cpu_timer(struct timer* timer);
+
+void setup_user_timer();

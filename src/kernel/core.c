@@ -9,6 +9,7 @@ bool panic_flag;
 
 NO_RETURN void idle_entry() {
     set_cpu_on();
+    setup_user_timer();
     while (1) {
         yield();
         if (panic_flag)

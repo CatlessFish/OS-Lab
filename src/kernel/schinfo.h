@@ -1,6 +1,7 @@
 #pragma once
 
 #include <common/list.h>
+#include <common/rbtree.h>
 struct proc; // dont include proc.h here
 
 // embedded data for cpus
@@ -16,4 +17,7 @@ struct schinfo
 {
     // customize your sched info
     ListNode sch_node;
+    struct rb_node_ rbnode;
+    u64 vruntime;
+    u64 lastrun;
 };

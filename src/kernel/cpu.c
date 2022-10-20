@@ -99,3 +99,25 @@ void set_cpu_off() {
     cpus[cpuid()].online = false;
     printk("CPU %d: stopped\n", cpuid());
 }
+
+// #define DEBUG_LOG_SCHEDTIMERINFO
+struct timer sched_timer[4];
+
+static void sched_timer_handler(struct timer* t) {
+    _arch_disable_trap();
+
+    #ifdef DEBUG_LOG_SCHEDTIMERINFO
+    printk("cpu %d pid %d, scheduling out..\n", cpuid(), thisproc()->pid);
+    #endif
+
+    // set_cpu_timer(&sched_timer[cpuid()]);
+    yield();
+    (void) t;
+}
+
+// Set up customized per-cpu timer
+void setup_user_timer() {
+    int cid = cpuid();
+    sched_timer[cid].handler = sched_timer_handler;
+    sched_timer[cid].elapse = 50;
+}

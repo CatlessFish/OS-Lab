@@ -6,7 +6,7 @@
 .align 12
 loop_start:
     mov x4, x0
-    mov x8, #SYS_myreport
+    mov x8, #SYS_myreport // Will this overwrite ucontext->x8 when trap?
 delay:
     mov x0, #10000
     mov x1, #0

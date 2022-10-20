@@ -6,6 +6,8 @@
 #include <kernel/proc.h>
 #include <kernel/syscall.h>
 
+#define EXP_LVL(x) (((u64)x >> 2) & 0x3);
+
 void trap_global_handler(UserContext* context)
 {
     thisproc()->ucontext = context;
@@ -49,6 +51,11 @@ void trap_global_handler(UserContext* context)
     }
 
     // TODO: stop killed process while returning to user space
+    struct proc* p = thisproc();
+    bool el = EXP_LVL(p->ucontext->spsr);
+    if (p->killed && el == 0) {
+        exit(-1);
+    }
 
 }
 
