@@ -119,7 +119,7 @@ NO_RETURN void exit(int code)
     // NOTE: be careful of concurrency
 
     thisproc()->exitcode = code;
-    // Any resources to be cleaned?
+    free_pgdir(&thisproc()->pgdir);
     _acquire_proc_lock();
     for (auto p = thisproc()->children.next; p != &thisproc()->children; ) {
         if (p == &thisproc()->children) continue;
