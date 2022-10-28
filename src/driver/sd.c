@@ -167,7 +167,7 @@ void sd_intr() {
     queue_unlock(&bufQ);
     if (next) {
         _acquire_spinlock(&sdlock);
-        sdrw(next);
+        sd_start(next);
         _release_spinlock(&sdlock);
     }
     post_sem(&b->ok);
@@ -195,7 +195,6 @@ void sdrw(buf* b) {
 
     if (start) {
         _acquire_spinlock(&sdlock);
-
         sd_start(first);
         _release_spinlock(&sdlock);
     }

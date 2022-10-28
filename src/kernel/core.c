@@ -11,9 +11,10 @@ NO_RETURN void idle_entry() {
     set_cpu_on();
     setup_user_timer();
     while (1) {
-        yield();
+        // yield();
         if (panic_flag)
             break;
+        if (cpuid() == 0) yield();
         arch_with_trap {
             arch_wfi();
         }
