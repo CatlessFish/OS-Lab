@@ -103,7 +103,7 @@ bool is_unused(struct proc* p)
     return r;
 }
 
-bool activate_proc(struct proc* p)
+bool _activate_proc(struct proc* p, bool onalert)
 {
     // if the proc->state is RUNNING/RUNNABLE, do nothing
     // if the proc->state if SLEEPING/UNUSED, set the process state to RUNNABLE and add it to the sched queue
