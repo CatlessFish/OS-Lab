@@ -40,7 +40,7 @@ void trap_global_handler(UserContext* context)
         case ESR_EC_DABORT_EL0:
         case ESR_EC_DABORT_EL1:
         {
-            printk("Page fault %llu\n", ec);
+            printk("Page fault %llx\n", ec);
             PANIC();
         } break;
         default:

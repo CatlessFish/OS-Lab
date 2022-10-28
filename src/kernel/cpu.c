@@ -119,5 +119,5 @@ static void sched_timer_handler(struct timer* t) {
 void setup_user_timer() {
     int cid = cpuid();
     sched_timer[cid].handler = sched_timer_handler;
-    sched_timer[cid].elapse = 50;
+    sched_timer[cid].elapse = 1;
 }

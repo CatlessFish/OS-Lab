@@ -25,6 +25,7 @@ void main()
     else
     {
         while (!boot_secondary_cpus);
+        // while(1);
         arch_dsb_sy();
     }
 

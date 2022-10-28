@@ -1,4 +1,4 @@
-
+#include <kernel/mem.h>
 #include <driver/sddef.h>
 
 /*
@@ -6,23 +6,29 @@
  * Returns zero if initialization was successful, non-zero otherwise.
  */
 int sdInit();
+
+
 /*
 Wait for interrupt.
 return after interrupt handling
 */
 static int sdWaitForInterrupt(unsigned int mask);
+
+
 /*
 data synchronization barrier.
 use before access memory
 */
 static ALWAYS_INLINE void arch_dsb_sy();
+
+
 /*
 call handler when interrupt
 */
 void set_interrupt_handler(InterruptType type, InterruptHandler handler);
-/*
 
-*/
+static void sd_start(struct buf* b);
+
 ALWAYS_INLINE u32 get_EMMC_DATA() {
     return *EMMC_DATA;
 }
@@ -31,6 +37,12 @@ ALWAYS_INLINE u32 get_and_clear_EMMC_INTERRUPT() {
     *EMMC_INTERRUPT = t;
     return t;
 }
+
+static Queue bufQ;
+static SpinLock sdlock;
+static u32 LBA;
+static u32 PartSize;
+
 
 /*
  * Initialize SD card and parse MBR.
@@ -56,6 +68,139 @@ void sd_init() {
      * 4.don't forget to call this function somewhere
      * TODO: Lab5 driver.
      */
+    queue_init(&bufQ);
+    init_spinlock(&sdlock);
+    
+    sdInit();
+    // printk("%llx\n", (u64)EMMC_INTERRUPT);
+    // EMMC_INTERRUPT at 0xffff00003f300030
+
+    buf mbr;
+    mbr.blockno = 0, mbr.flags = 0;
+    memset(mbr.data, 0, sizeof(mbr.data));
+    init_sem(&mbr.ok, 0);
+    init_list_node(&mbr.Qnode);
+
+    // queue_lock(&bufQ);
+    // queue_push(&bufQ, &mbr.Qnode);
+    // queue_unlock(&bufQ);
+    sd_start(&mbr);
+    ASSERT(!sdWaitForInterrupt(INT_READ_RDY));
+    u32* data = (u32*)mbr.data;
+    for (int done = 0; done < 128; done++) {
+        data[done] = *EMMC_DATA;
+    }
+    LBA = *(u32*) (&mbr.data[0x1CE + 0x8]);
+    PartSize = *(u32*) (&mbr.data[0x1CE + 0xC]);
+    printk("LBA %d, Size %d\n", LBA, PartSize);
+    ASSERT(LBA && PartSize);
+
+    get_and_clear_EMMC_INTERRUPT();
+    set_interrupt_handler(IRQ_ARASANSDIO, sd_intr);
+    set_interrupt_handler(IRQ_SDIO, sd_intr);
+}
+
+/* The interrupt handler. Sync buf with disk.*/
+void sd_intr() {
+    /*
+     * Pay attention to whether there is any element in the buflist.
+     * Understand the meanings of EMMC_INTERRUPT, EMMC_DATA, INT_DATA_DONE,
+     * INT_READ_RDY, B_DIRTY, B_VALID and some other flags.
+     *
+     * Notice that reading and writing are different, you can use flags
+     * to identify.
+     *
+     * If B_DIRTY is set, write buf to disk, clear B_DIRTY, set B_VALID.
+     * Else if B_VALID is not set, read buf from disk, set B_VALID.
+     *
+     * Remember to clear the flags after reading/writing.
+     *
+     * When finished, remember to use pop and check whether the list is
+     * empty, if not, continue to read/write.
+     *
+     * You may use some buflist functions, arch_dsb_sy(), sd_start(), post_sem()
+     * and sdWaitForInterrupt() to complete this function.
+     *
+     * TODO: Lab5 driver.
+     */
+    queue_lock(&bufQ);
+    int sz = bufQ.sz;
+    queue_unlock(&bufQ);
+    if (!sz)
+        return;
+
+    // int ival = get_and_clear_EMMC_INTERRUPT();
+    // (void)ival;
+    queue_lock(&bufQ);
+    auto node = queue_front(&bufQ);
+    auto b = container_of(node, buf, Qnode);
+    queue_pop(&bufQ);
+    queue_unlock(&bufQ);
+
+    if (b->flags & B_DIRTY) {
+        // Write
+        _acquire_spinlock(&sdlock);
+        sdWaitForInterrupt(INT_DATA_DONE);
+        b->flags &= ~B_DIRTY;
+        b->flags |= B_VALID;
+        _release_spinlock(&sdlock);
+    } else if (!(b->flags & B_VALID)) {
+        // Read
+        _acquire_spinlock(&sdlock);
+        sdWaitForInterrupt(INT_READ_RDY);
+        u32* data = (u32*)b->data;
+        for (int done = 0; done < 128; done++) {
+            data[done] = *EMMC_DATA;
+        }
+        b->flags |= B_VALID;
+        _release_spinlock(&sdlock);
+    }
+    get_and_clear_EMMC_INTERRUPT();
+
+    // Send next reqeust in queue if any
+    buf *next = NULL;
+    queue_lock(&bufQ);
+    if (!queue_empty(&bufQ)) {
+        auto node = queue_front(&bufQ);
+        next = container_of(node, buf, Qnode);
+    } 
+    queue_unlock(&bufQ);
+    if (next) {
+        _acquire_spinlock(&sdlock);
+        sdrw(next);
+        _release_spinlock(&sdlock);
+    }
+    post_sem(&b->ok);
+}
+
+void sdrw(buf* b) {
+    /*
+     * 1.add buf to the queue
+     * 2.if no buf in queue before,send request now
+     * 3.'loop' until buf flag is modified
+     *
+     * You may use some buflist functions, arch_dsb_sy(),
+     * sd_start(), wait_sem() to complete this function.
+     *  TODO: Lab5 driver.
+     */
+    init_sem(&b->ok, 0);
+    init_list_node(&b->Qnode);
+
+    queue_lock(&bufQ);
+    bool start = queue_empty(&bufQ);
+    queue_push(&bufQ, &b->Qnode);
+    auto node = queue_front(&bufQ);
+    buf* first = container_of(node, buf, Qnode); 
+    queue_unlock(&bufQ);
+
+    if (start) {
+        _acquire_spinlock(&sdlock);
+
+        sd_start(first);
+        _release_spinlock(&sdlock);
+    }
+
+    wait_sem(&b->ok);
 }
 
 /* Start the request for b. Caller must hold sdlock. */
@@ -113,42 +258,7 @@ static void sd_start(struct buf* b) {
     }
 }
 
-/* The interrupt handler. Sync buf with disk.*/
-void sd_intr() {
-    /*
-     * Pay attention to whether there is any element in the buflist.
-     * Understand the meanings of EMMC_INTERRUPT, EMMC_DATA, INT_DATA_DONE,
-     * INT_READ_RDY, B_DIRTY, B_VALID and some other flags.
-     *
-     * Notice that reading and writing are different, you can use flags
-     * to identify.
-     *
-     * If B_DIRTY is set, write buf to disk, clear B_DIRTY, set B_VALID.
-     * Else if B_VALID is not set, read buf from disk, set B_VALID.
-     *
-     * Remember to clear the flags after reading/writing.
-     *
-     * When finished, remember to use pop and check whether the list is
-     * empty, if not, continue to read/write.
-     *
-     * You may use some buflist functions, arch_dsb_sy(), sd_start(), post_sem()
-     * and sdWaitForInterrupt() to complete this function.
-     *
-     * TODO: Lab5 driver.
-     */
-}
-
-void sdrw(buf* b) {
-    /*
-     * 1.add buf to the queue
-     * 2.if no buf in queue before,send request now
-     * 3.'loop' until buf flag is modified
-     *
-     * You may use some buflist functions, arch_dsb_sy(),
-     * sd_start(), wait_sem() to complete this function.
-     *  TODO: Lab5 driver.
-     */
-}
+// #define DEBUG_LOG_TESTLIVING
 
 /* SD card test and benchmark. */
 void sd_test() {
@@ -165,6 +275,9 @@ void sd_test() {
     printk("- sd check rw...\n");
     // Read/write test
     for (int i = 1; i < n; i++) {
+        #ifdef DEBUG_LOG_TESTLIVING
+        printk("RW i = %d\n", i);
+        #endif
         // Backup.
         b[0].flags = 0;
         b[0].blockno = (u32)i;
@@ -195,6 +308,9 @@ void sd_test() {
     t = (i64)get_timestamp();
     arch_dsb_sy();
     for (int i = 0; i < n; i++) {
+        #ifdef DEBUG_LOG_TESTLIVING
+        printk("RBench i = %d\n", i);
+        #endif
         b[i].flags = 0;
         b[i].blockno = (u32)i;
         sdrw(&b[i]);
@@ -210,6 +326,9 @@ void sd_test() {
     t = (i64)get_timestamp();
     arch_dsb_sy();
     for (int i = 0; i < n; i++) {
+        #ifdef DEBUG_LOG_TESTLIVING
+        printk("WBench i = %d\n", i);
+        #endif
         b[i].flags = B_DIRTY;
         b[i].blockno = (u32)i;
         sdrw(&b[i]);
