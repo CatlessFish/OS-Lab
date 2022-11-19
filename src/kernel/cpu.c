@@ -105,7 +105,6 @@ void set_cpu_off() {
 struct timer sched_timer[4];
 
 static void sched_timer_handler(struct timer* t) {
-    _arch_disable_trap();
 
     #ifdef DEBUG_LOG_SCHEDTIMERINFO
     printk("cpu %d pid %d, scheduling out..\n", cpuid(), thisproc()->pid);

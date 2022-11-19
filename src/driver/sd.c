@@ -199,7 +199,9 @@ void sdrw(buf* b) {
         _release_spinlock(&sdlock);
     }
 
-    wait_sem(&b->ok);
+    int ret = wait_sem(&b->ok);
+    (void)ret;
+    // what if ret != 0(killed)?
 }
 
 /* Start the request for b. Caller must hold sdlock. */

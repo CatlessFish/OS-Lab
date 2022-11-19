@@ -21,6 +21,7 @@ typedef struct {
     usize block_no;
     ListNode node;
     bool acquired;   // is the block already acquired by some thread?
+    int pending;    // is any thread waiting on this block so that it shouldn't be evicted?
     bool pinned;     // if a block is pinned, it should not be evicted from the
                      // cache.
     SleepLock lock;  // this lock protects `valid` and `data`.
@@ -33,7 +34,15 @@ typedef struct {
 typedef struct {
     usize rm;
     usize ts;
-    // hint: you may want to add something else here.
+    // to protect bno and num_blocks
+    SpinLock lock;
+    // a stack to mark all associated blocks and their pointers
+    usize bno[OP_MAX_NUM_BLOCKS];
+    int num_blocks;
+    // for op list
+    ListNode node;
+    // sleep when waiting to be commited
+    Semaphore ok;
 } OpContext;
 
 typedef struct BlockCache {

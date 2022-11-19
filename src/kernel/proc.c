@@ -225,7 +225,7 @@ int kill(int pid)
     }
     _release_proc_lock();
     if (kill) {
-        activate_proc(p);
+        alert_proc(p);
         return 0;
     }
     else return -1;

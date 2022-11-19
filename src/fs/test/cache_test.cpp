@@ -40,6 +40,7 @@ void test_init() {
 void test_read_write() {
     initialize(1, 1);
 
+
     auto* b = bcache.acquire(1);
     auto* d = mock.inspect(1);
     assert_eq(b->block_no, 1);
@@ -64,7 +65,7 @@ void test_loop_read() {
     for (usize round = 0; round < num_rounds; round++) {
         std::vector<Block*> p;
         p.resize(sblock.num_blocks);
-
+        
         for (usize i = 0; i < sblock.num_blocks; i++) {
             // PAUSE
             p[i] = bcache.acquire(i);
@@ -76,11 +77,12 @@ void test_loop_read() {
                 assert_eq(p[i]->data[j], d[j]);
             }
         }
-
+        // PAUSE
         for (usize i = 0; i < sblock.num_blocks; i++) {
             assert_eq(p[i]->valid, true);
             bcache.release(p[i]);
         }
+        
     }
 }
 
@@ -150,7 +152,7 @@ void test_lru() {
 
 void test_atomic_op() {
     initialize(32, 64);
-
+    // PAUSE
     OpContext ctx;
     bcache.begin_op(&ctx);
     bcache.end_op(&ctx);
@@ -233,6 +235,7 @@ void test_resident() {
     // 1. dirty blocks should be pinned in block cache before `end_op`.
     // 2. logging should not pollute block cache in most of time.
 
+    // PAUSE
     initialize(OP_MAX_NUM_BLOCKS, 500);
 
     constexpr usize num_rounds = 200;
@@ -312,7 +315,7 @@ void test_global_absorption() {
         bcache.sync(&out, b);
         bcache.release(b);
     }
-
+    
     std::vector<OpContext> ctx;
     std::vector<std::thread> workers;
     ctx.resize(num_workers);
@@ -328,7 +331,7 @@ void test_global_absorption() {
         }
         workers.emplace_back([&, i] { bcache.end_op(&ctx[i]); });
     }
-
+    // PAUSE
     workers.emplace_back([&] { bcache.end_op(&out); });
     for (auto& worker : workers) {
         worker.join();
@@ -376,7 +379,7 @@ void test_replay() {
 
 void test_alloc() {
     initialize(100, 100);
-
+    
     std::vector<usize> bno;
     bno.reserve(100);
     for (int i = 0; i < 100; i++) {
@@ -550,7 +553,7 @@ void test_sync() {
             assert_eq(*b, cookie(i, j));
         }
     };
-
+    // PAUSE
     {
         std::unique_lock lock(mtx);
         for (int j = 0; j < num_rounds; j++) {
@@ -575,7 +578,7 @@ void test_sync() {
 
 void test_alloc() {
     initialize(100, 1000);
-
+    // PAUSE
     std::vector<usize> bno(1000);
     std::vector<std::thread> workers;
     for (usize i = 0; i < 4; i++) {
@@ -660,7 +663,7 @@ void test_simple_crash() {
 void test_parallel(usize num_rounds, usize num_workers, usize delay_ms, usize log_cut) {
     usize log_size = num_workers * OP_MAX_NUM_BLOCKS - log_cut;
     usize num_data_blocks = 200 + num_workers * OP_MAX_NUM_BLOCKS;
-
+    // PAUSE
     printf("(trace) running: 0/%zu", num_rounds);
     fflush(stdout);
 
@@ -695,6 +698,7 @@ void test_parallel(usize num_rounds, usize num_workers, usize delay_ms, usize lo
                                 bcache.sync(&ctx, b);
                                 bcache.release(b);
                             }
+                            // PAUSE
                             bcache.end_op(&ctx);
 
                             v++;
@@ -723,6 +727,7 @@ void test_parallel(usize num_rounds, usize num_workers, usize delay_ms, usize lo
                 replay_count++;
 
             if ((child = fork()) == IN_CHILD) {
+                // PAUSE
                 init_bcache(&sblock, &device);
                 assert_eq(header->num_blocks, 0);
 
@@ -734,6 +739,7 @@ void test_parallel(usize num_rounds, usize num_workers, usize delay_ms, usize lo
                         auto* b = mock.inspect(t + j);
                         for (usize k = 0; k < BLOCK_SIZE; k += sizeof(u64)) {
                             u64 u = *reinterpret_cast<u64*>(b + k);
+                            // printf("j=%d, blkno = %d, k=%d\n", j, t + j, k);
                             assert_eq(u, v);
                         }
                     }

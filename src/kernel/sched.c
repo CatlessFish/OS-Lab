@@ -109,8 +109,9 @@ bool _activate_proc(struct proc* p, bool onalert)
     // if the proc->state if SLEEPING/UNUSED, set the process state to RUNNABLE and add it to the sched queue
     // else(ZOMBIE): return false 
     if (p->state == RUNNABLE || p->state == RUNNING) return false;
-    else if (p->state == SLEEPING || p->state == UNUSED)
-    {
+    else if (p->state == SLEEPING || p->state == UNUSED || p->state == DEEPSLEEPING)
+    {   
+        if (p->state == DEEPSLEEPING && onalert == true) return false;
         _acquire_sched_lock();
         p->state = RUNNABLE;
         u64 mintime;
@@ -120,7 +121,7 @@ bool _activate_proc(struct proc* p, bool onalert)
         else
             mintime = container_of(minNode, struct schinfo, rbnode)->vruntime;
         p->schinfo.vruntime = mintime;
-        _rb_insert(&p->schinfo.rbnode, &sched_root, _schedtree_node_cmp);
+        ASSERT(_rb_insert(&p->schinfo.rbnode, &sched_root, _schedtree_node_cmp) == 0);
         _release_sched_lock();
         return true;
     }
@@ -139,7 +140,7 @@ static void update_this_state(enum procstate new_state)
         u64 run = get_timestamp_ms() - p->schinfo.lastrun;
         p->schinfo.vruntime += run;
         if (new_state == RUNNABLE)
-            _rb_insert(&p->schinfo.rbnode, &sched_root, _schedtree_node_cmp);
+            ASSERT(_rb_insert(&p->schinfo.rbnode, &sched_root, _schedtree_node_cmp) == 0);
     }
 }
 

@@ -67,6 +67,7 @@ void init_spinlock(struct SpinLock* lock, const char* name [[maybe_unused]]) {
 void _acquire_spinlock(struct SpinLock* lock) {
     if (holding++ == 0)
         blocker.p();
+    // printf("Acq Holding=%d\n", holding);
     mtx_map[lock].lock();
 }
 
@@ -74,6 +75,7 @@ void _release_spinlock(struct SpinLock* lock) {
     mtx_map[lock].unlock();
     if (--holding == 0)
         blocker.v();
+    // printf("Rel Holding=%d\n", holding);
 }
 
 bool holding_spinlock(struct SpinLock* lock) {
@@ -112,6 +114,10 @@ void _post_sem(Semaphore* x) {
     sb(x)++;
 }
 bool _wait_sem(Semaphore* x, bool alertable [[maybe_unused]]) {
+    if (holding != 1) {
+        // printf("Holding: %d\n", holding);
+        // PANIC();
+    }
     auto t = sa(x)++;
     int t0 = time(NULL);
     while (1)
@@ -125,6 +131,7 @@ bool _wait_sem(Semaphore* x, bool alertable [[maybe_unused]]) {
         _unlock_sem(x);
         if (holding) {
             if constexpr (MockLockConfig::SpinLockForbidsWait)
+                printf("Holding: %d\n", holding);
                 assert(0);
             blocker.v();
         }
