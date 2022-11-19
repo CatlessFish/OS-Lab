@@ -315,6 +315,7 @@ static void cache_end_op(OpContext* ctx) {
             ASSERT(b->acquired);
             cache_sync(NULL, b);
             b->pinned = false;
+            b->valid = true;
             cache_release(b);
         }
 
