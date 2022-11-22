@@ -4,7 +4,8 @@
 
 #define RR_TIME 1000
 
-void init_schinfo(struct schinfo*);
+void init_schinfo(struct schinfo*, bool group);
+void init_schqueue(struct schqueue*);
 
 void _acquire_schedtree_lock();
 void _release_schedtree_lock();

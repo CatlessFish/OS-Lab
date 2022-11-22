@@ -21,3 +21,10 @@ struct schinfo
     u64 vruntime;
     u64 lastrun;
 };
+
+// embedded data for containers
+struct schqueue
+{
+    // TODO: customize your sched queue
+    
+};

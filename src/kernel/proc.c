@@ -113,7 +113,7 @@ NO_RETURN void exit(int code)
 {
     // 1. set the exitcode
     // 2. clean up the resources
-    // 3. transfer children to the root_proc, and notify the root_proc if there is zombie
+    // 3. transfer children to the rootproc of the container, and notify the it if there is zombie
     // 4. notify the parent
     // 5. sched(ZOMBIE)
     // NOTE: be careful of concurrency
@@ -147,13 +147,11 @@ NO_RETURN void exit(int code)
     PANIC(); // prevent the warning of 'no_return function returns'
 }
 
-extern SpinLock sched_lock;
-
-int wait(int* exitcode)
+int wait(int* exitcode, int* pid)
 {
     // 1. return -1 if no children
     // 2. wait for childexit
-    // 3. if any child exits, clean it up and return its pid and exitcode
+    // 3. if any child exits, clean it up and return its local pid and exitcode
     // NOTE: be careful of concurrency
 
     if (_empty_list(&thisproc()->children)) return -1;
@@ -235,7 +233,7 @@ int start_proc(struct proc* p, void(*entry)(u64), u64 arg)
 {
     // 1. set the parent to root_proc if NULL
     // 2. setup the kcontext to make the proc start with proc_entry(entry, arg)
-    // 3. activate the proc and return its pid
+    // 3. activate the proc and return its local pid
     // NOTE: be careful of concurrency
 
     if (p->parent == NULL) {
