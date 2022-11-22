@@ -305,7 +305,7 @@ void test_global_absorption() {
 
     initialize(2 * OP_MAX_NUM_BLOCKS + op_size, 100);
     usize t = sblock.num_blocks - 1;
-
+    // PAUSE
     OpContext out;
     bcache.begin_op(&out);
 
@@ -345,6 +345,7 @@ void test_global_absorption() {
         auto* b = mock.inspect(t - i);
         assert_eq(b[0], 0xcc);
     }
+    // PAUSE
 }
 
 // target: replay at initialization.
@@ -588,6 +589,7 @@ void test_alloc() {
                 OpContext ctx;
                 bcache.begin_op(&ctx);
                 bno[t + j] = bcache.alloc(&ctx);
+                // printf("%d\n", bno[t + j]);
                 bcache.end_op(&ctx);
             }
         });

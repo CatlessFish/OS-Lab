@@ -122,17 +122,19 @@ static Block* cache_acquire(usize block_no) {
         auto b = container_of(node, Block, node);
         if (b->block_no == block_no) {
             target = b;
-            target->pending++;
-            _release_spinlock(&lock);
-            unalertable_wait_sem(&target->lock);
-            _acquire_spinlock(&lock);
-            target->pending--;
-            // ASSERT(target->acquired == false);
-            target->acquired = true;
             break;
         }
     }
     if (target) {
+        // check target->lock
+        target->pending++;
+        _release_spinlock(&lock);
+        unalertable_wait_sem(&target->lock);
+        _acquire_spinlock(&lock);
+        target->pending--;
+        ASSERT(target->acquired == false);
+        target->acquired = true;
+
         // Update LRU
         _detach_from_list(&target->node);
         _insert_into_list(&head, &target->node);
@@ -152,12 +154,9 @@ static Block* cache_acquire(usize block_no) {
     device_read(target);
     target->valid = true;
     target->acquired = true;
-
-    _release_spinlock(&lock);
     wait_sem(&target->lock);
-    _acquire_spinlock(&lock);
-
     _insert_into_list(&head, &target->node);
+
     while (_get_num_cached_blocks() > EVICTION_THRESHOLD) {
             bool ok;
             ok = try_evict_block(get_next_to_evict());
@@ -169,8 +168,11 @@ static Block* cache_acquire(usize block_no) {
 
 // see `cache.h`.
 static void cache_release(Block* block) {
-    post_sem(&block->lock);
+    _acquire_spinlock(&lock);
     block->acquired = false;
+    _release_spinlock(&lock);
+    post_sem(&block->lock);
+
 }
 
 // initialize block cache.
@@ -283,6 +285,7 @@ static void cache_end_op(OpContext* ctx) {
     _acquire_spinlock(&op_num_lock);
     int reuse = OP_MAX_NUM_BLOCKS - (ctx->num_blocks - absorbed);
     remaining_log_num += reuse;
+    // printk("reuse: %d\n", reuse);
     if (remaining_log_num - reuse < OP_MAX_NUM_BLOCKS && remaining_log_num >= OP_MAX_NUM_BLOCKS) {
         // printk("Remaining now %d, op_avai %d, up\n", remaining_log_num, _query_sem(&op_available));
         post_sem(&op_available);
