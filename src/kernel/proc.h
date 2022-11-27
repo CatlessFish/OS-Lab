@@ -12,7 +12,7 @@ enum procstate { UNUSED, RUNNABLE, RUNNING, SLEEPING, DEEPSLEEPING, ZOMBIE };
 typedef struct UserContext
 {
     // customize your trap frame
-    u64 sp_el0, _align;
+    u64 sp_el0, ttbr0;
     u64 spsr, elr;
     // x0~x17
     u64 x[18];
@@ -48,7 +48,7 @@ struct proc
     KernelContext* kcontext;
 };
 
-// void init_proc(struct proc*);
+void init_proc(struct proc*);
 WARN_RESULT struct proc* create_proc();
 void set_parent_to_this(struct proc*);
 int start_proc(struct proc*, void(*entry)(u64), u64 arg);

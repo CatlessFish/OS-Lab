@@ -29,12 +29,12 @@ NO_RETURN void kernel_entry() {
     printk("hello world %d\n", (int)sizeof(struct proc));
 
     proc_test();
-    user_proc_test();
-    container_test();
+    // user_proc_test();
+    // container_test();
     // sd_test();
     
     do_rest_init();
-
+    PANIC();
     while (1)
         yield();
 }

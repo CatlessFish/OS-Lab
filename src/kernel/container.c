@@ -5,6 +5,7 @@
 #include <kernel/printk.h>
 #include <kernel/mem.h>
 #include <kernel/sched.h>
+#include <kernel/proc.h>
 
 struct container root_container;
 extern struct proc root_proc;
@@ -23,14 +24,29 @@ void init_container(struct container* container)
     container->rootproc = NULL;
     init_schinfo(&container->schinfo, true);
     init_schqueue(&container->schqueue);
-    // TODO: initialize namespace (local pid allocator)
 
+    init_list_node(&container->pid_head);
+    container->max_pid = 0;
 }
 
 struct container* create_container(void (*root_entry)(), u64 arg)
 {
-    // TODO
+    struct proc* this = thisproc();
+    struct proc* new_rt = kalloc(sizeof(struct proc));
+    struct container* new_con = kalloc(sizeof(struct container));
+
+    init_container(new_con);
+    new_con->parent = this->container;
+    new_con->rootproc = new_rt;
     
+    init_proc(new_rt);
+    set_parent_to_this(new_rt);
+    new_rt->container = new_con;
+
+    // start_proc will add new_rt into new_con's sched queue
+    start_proc(new_rt, root_entry, arg);
+    activate_group(new_con);
+    return new_con;
 }
 
 define_early_init(root_container)

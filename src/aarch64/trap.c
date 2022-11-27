@@ -3,6 +3,7 @@
 #include <kernel/sched.h>
 #include <kernel/printk.h>
 #include <driver/interrupt.h>
+#include <driver/clock.h>
 #include <kernel/proc.h>
 #include <kernel/syscall.h>
 
@@ -10,7 +11,15 @@
 
 void trap_global_handler(UserContext* context)
 {
-    thisproc()->ucontext = context;
+    u64 traptime = get_timestamp_ms();
+    struct proc* this = thisproc();
+    this->ucontext = context;
+    int exp_lvl = EXP_LVL(context->spsr);
+    
+    if (exp_lvl == 0) {
+        // From userspace, stop ticking for its scheduler
+        thisproc()->schinfo.traptime = traptime;
+    }
 
     u64 esr = arch_get_esr();
     u64 ec = esr >> ESR_EC_SHIFT;
@@ -50,11 +59,11 @@ void trap_global_handler(UserContext* context)
         }
     }
 
-    // TODO: stop killed process while returning to user space
-    struct proc* p = thisproc();
-    bool el = EXP_LVL(p->ucontext->spsr);
-    if (p->killed && el == 0) {
-        exit(-1);
+    // Stop killed process while returning to user space
+    if (exp_lvl == 0) {
+        this->schinfo.traptime = -1;
+        if (this->killed)
+            exit(-1);
     }
 
 }

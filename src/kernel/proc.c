@@ -2,10 +2,13 @@
 #include <kernel/init.h>
 #include <kernel/mem.h>
 #include <kernel/sched.h>
+#include <kernel/pid.h>
 #include <common/list.h>
 #include <common/string.h>
 #include <common/spinlock.h>
 #include <kernel/printk.h>
+
+extern struct container root_container;
 
 struct proc root_proc;
 
@@ -34,66 +37,6 @@ void _release_proc_lock() {
 }
 
 
-typedef struct {
-    bool used;
-    int pid;
-    ListNode node;
-} pid_s;
-
-int pid;
-ListNode pid_head;
-SpinLock pid_lock;
-
-define_early_init(init_pid) {
-    pid = 1;
-    init_spinlock(&pid_lock);
-    init_list_node(&pid_head);
-}
-
-void pid_grow() {
-    for (int i = 0; i < 10; i++)
-    {
-        auto p = (pid_s*) kalloc(sizeof(pid_s));
-        p->pid = pid++;
-        init_list_node(&p->node);
-        _insert_into_list(&pid_head, &p->node);
-    }
-}
-
-int get_pid() {
-    _acquire_spinlock(&pid_lock);
-    pid_s* p = NULL;
-    while (1) {
-        _for_in_list(node, &pid_head) {
-            if (node == &pid_head) continue;
-            auto cur = container_of(node, pid_s, node);
-            if (!cur->used) {
-                p = cur;
-                break;
-            }
-        }
-        if (p == NULL) pid_grow();
-        else break;
-    }
-    _release_spinlock(&pid_lock);
-    ASSERT(p != NULL && p->used == 0); // TODO: a bug may occur
-    p->used = 1;
-    return p->pid;
-}
-
-void release_pid(int id) {
-    _acquire_spinlock(&pid_lock);
-    _for_in_list(node, &pid_head) {
-        if (node == &pid_head) continue;
-        auto p = container_of(node, pid_s, node);
-        if (p->pid == id) {
-            p->used = 0;
-            break;
-        }
-    }
-    _release_spinlock(&pid_lock);
-}
-
 void kernel_entry();
 void proc_entry();
 
@@ -118,27 +61,30 @@ NO_RETURN void exit(int code)
     // 5. sched(ZOMBIE)
     // NOTE: be careful of concurrency
 
-    thisproc()->exitcode = code;
-    free_pgdir(&thisproc()->pgdir);
+    struct proc* this = thisproc();
+    ASSERT (this != this->container->rootproc && !this->idle);
+    this->exitcode = code;
+    free_pgdir(&this->pgdir);
     _acquire_proc_lock();
-    for (auto p = thisproc()->children.next; p != &thisproc()->children; ) {
-        if (p == &thisproc()->children) continue;
+    struct proc* rp = this->container->rootproc;
+    for (auto p = this->children.next; p != &this->children; ) {
+        if (p == &this->children) continue;
         struct proc *child = container_of(p, struct proc, ptnode);
-        child->parent = &root_proc;
+        child->parent = rp;
         p = _detach_from_list(&child->ptnode); // child->ptnode == p;
         p = p->next;
-        _insert_into_list(&root_proc.children, &child->ptnode);
+        _insert_into_list(&rp->children, &child->ptnode);
         if (is_zombie(child)) {
-            post_sem(&(root_proc.childexit));
+            post_sem(&rp->childexit);
         }
     }
     // Parent should be RUNNING, RUNNABLE or SLEEPING
-    ASSERT(thisproc()->parent->state >= 1 && thisproc()->parent->state <= 3);
-    post_sem(&thisproc()->parent->childexit);
+    ASSERT(this->parent->state >= 1 && this->parent->state <= 4);
+    post_sem(&this->parent->childexit);
     _acquire_sched_lock();
 
     #ifdef DEBUG_LOG_EXITINFO
-    printk("Exited: CPU %d pid %d\n", cpuid(), thisproc()->pid);
+    printk("Exited: CPU %d pid %d\n", cpuid(), this->pid);
     #endif
 
     _release_proc_lock();
@@ -166,12 +112,14 @@ int wait(int* exitcode, int* pid)
             // ASSERT(child->state <= 4 && child->state >= 0);
             if (is_zombie(child)) {
                 *exitcode = child->exitcode;
-                int pid = child->pid;
+                *pid = child->pid;
+                int pid = child->localpid;
+                pid_release(child->container, child->localpid);
                 kfree_page(child->kstack);
                 p = _detach_from_list(&child->ptnode);
                 kfree(child);
                 _release_proc_lock();
-                release_pid(pid);
+                pid_release(child->container, pid);
                 return pid;
             }
         }
@@ -245,7 +193,8 @@ int start_proc(struct proc* p, void(*entry)(u64), u64 arg)
     p->kcontext->lr = (u64) &proc_entry;
     p->kcontext->x0 = (u64) entry;
     p->kcontext->x1 = (u64) arg;
-    int id = p->pid;
+    p->localpid = pid_get(p->container);
+    int id = p->localpid;
     ASSERT(p->parent != NULL);
     activate_proc(p); // after this, p should not be used
     return id;
@@ -259,14 +208,15 @@ void init_proc(struct proc* p)
     memset(p, 0, sizeof(*p));
     p->killed = 0;
     p->idle = 0;
-    p->pid = get_pid();
+    p->container = &root_container;
+    p->pid = pid_get(NULL);
     p->exitcode = 0;
     p->state = UNUSED;
     init_pgdir(&p->pgdir);
     init_sem(&p->childexit, 0);
     init_list_node(&p->children);
     init_list_node(&p->ptnode);
-    init_schinfo(&p->schinfo);
+    init_schinfo(&p->schinfo, false);
     p->kstack = kalloc_page();
     ASSERT(p->kstack);
     p->ucontext = (UserContext*) ((u64) p->kstack + PAGE_SIZE - 16 - sizeof(UserContext));

@@ -110,7 +110,7 @@ static void sched_timer_handler(struct timer* t) {
     printk("cpu %d pid %d, scheduling out..\n", cpuid(), thisproc()->pid);
     #endif
 
-    // set_cpu_timer(&sched_timer[cpuid()]);
+    set_cpu_timer(&sched_timer[cpuid()]);
     yield();
     (void) t;
 }
@@ -119,5 +119,6 @@ static void sched_timer_handler(struct timer* t) {
 void setup_user_timer() {
     int cid = cpuid();
     sched_timer[cid].handler = sched_timer_handler;
-    sched_timer[cid].elapse = 1;
+    sched_timer[cid].elapse = 5;
+    set_cpu_timer(&sched_timer[cid]);
 }

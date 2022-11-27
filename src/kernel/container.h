@@ -12,6 +12,8 @@ struct container
     struct schqueue schqueue;
 
     // TODO: namespace (local pid?)
+    ListNode pid_head;
+    int max_pid;
 
 };
 
