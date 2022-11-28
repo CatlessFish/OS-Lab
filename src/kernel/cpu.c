@@ -119,6 +119,7 @@ static void sched_timer_handler(struct timer* t) {
 void setup_user_timer() {
     int cid = cpuid();
     sched_timer[cid].handler = sched_timer_handler;
-    sched_timer[cid].elapse = 5;
+    // No less than 20, or may get stuck (Why??)
+    sched_timer[cid].elapse = 20;
     set_cpu_timer(&sched_timer[cid]);
 }

@@ -10,7 +10,7 @@
 #include <common/string.h>
 
 // #define DEBUG_LOG_SCHEDLOCKINFO
-#define DEBUG_LOG_SCHEDINFO
+// #define DEBUG_LOG_SCHEDINFO
 
 extern bool panic_flag;
 extern struct proc root_proc;
